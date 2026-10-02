@@ -93,9 +93,23 @@ p,li{font-size:16px;line-height:1.5}button p{font-size:16px!important}
 .pd-index-change{display:block;font-size:15px;margin:3px 0}.pd-index-change b{font-weight:650}.pd-market-flow{border-top:1px solid #dddccc;margin-top:9px;padding-top:7px}.pd-market-flow-row{display:grid;grid-template-columns:50px 58px 1fr;gap:8px;align-items:center;font-size:14px;margin:5px 0}.pd-market-flow-row b{font-size:14px}.pd-market-flow-track{height:6px;background:#e7eadf}.pd-market-flow-track i{display:block;height:6px;background:currentColor}.pd-market-flow small{font-size:12px!important}
 .pd-evidence-status{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid #dddccc;background:#fffef9;margin:8px 0 16px}.pd-evidence-status>div{padding:10px 14px;border-right:1px solid #dddccc}.pd-evidence-status>div:last-child{border:0}.pd-evidence-status small{display:block;font-size:13px;color:#53665c}.pd-evidence-status b{font-size:16px;color:#214b3a}@media(max-width:700px){.pd-evidence-status{grid-template-columns:1fr 1fr}}
 </style>''')
+# Streamlit Community Cloud Secrets -> provider environment variables.
+# Accept both the original PreDash names and the simpler names used in setup guides.
 try:
-    for k in ('APP_PASSWORD','DART_CRTFC_KEY','DATA_GO_KR_SERVICE_KEY','KRX_AUTH_KEY','CUSTOMS_API_KEY'):
-        if k in st.secrets: os.environ[k]=str(st.secrets[k])
+    secret_aliases = {
+        'APP_PASSWORD': ('APP_PASSWORD',),
+        'DART_CRTFC_KEY': ('DART_CRTFC_KEY', 'DART_API_KEY'),
+        'DATA_GO_KR_SERVICE_KEY': ('DATA_GO_KR_SERVICE_KEY', 'DATA_GO_KR_API_KEY'),
+        'KRX_AUTH_KEY': ('KRX_AUTH_KEY', 'KRX_API_KEY'),
+        'CUSTOMS_API_KEY': ('CUSTOMS_API_KEY',),
+        'ECOS_API_KEY': ('ECOS_API_KEY',),
+        'KOSIS_API_KEY': ('KOSIS_API_KEY',),
+    }
+    for env_name, candidates in secret_aliases.items():
+        for secret_name in candidates:
+            if secret_name in st.secrets and str(st.secrets[secret_name]).strip():
+                os.environ[env_name] = str(st.secrets[secret_name]).strip()
+                break
 except FileNotFoundError:
     pass
 
