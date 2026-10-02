@@ -40,6 +40,7 @@ from predash.visuals import compact_dashboard
 from predash.decision import comparison, brief, export_review, EvidenceError
 from predash.customs import exports, CustomsError
 from predash.krx import daily_activity, KRXError
+from predash.public_data import ecos_key_indicators, kosis_connection, configured_sources, PublicDataError
 import predash.watchlist as watch_module
 if not hasattr(watch_module,'backup_names'):
     watch_module=importlib.reload(watch_module)
@@ -287,6 +288,42 @@ if page in ('오늘의 점검','내 계좌','관심종목','투자 근거'):
             st.caption('Cboe 일별 종가 · S&P 500 옵션 기대 변동성, 한국시장 손실 확률 아님. PreDash 기준: 15 미만 낮음 / 15~20 보통 / 20~30 주의 / 30 이상 높음. 실시간 아님 · 30분 캐시 · 눈금 범위 0~50, 50 이상 오른쪽 끝 표시.')
             with st.expander('VIX 최근 흐름'):st.line_chart(v['rows'],x='날짜',y='VIX',height=180)
         except MacroError as exc:st.info(str(exc))
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def cached_ecos_indicators():
+    return ecos_key_indicators()
+
+@st.cache_data(ttl=1800,show_spinner=False)
+def cached_kosis_status():
+    return kosis_connection()
+
+def public_data_panel():
+    """Visible public-institution data block; independent of brokerage login."""
+    st.html("<div class='pd-section'><strong>공공데이터 브리핑</strong><span>공공기관 API · 30분 캐시</span></div>")
+    try:
+        ecos = cached_ecos_indicators()
+        cols = st.columns(len(ecos["items"]))
+        for col, item in zip(cols, ecos["items"]):
+            suffix = (" " + str(item["unit"]).strip()) if str(item["unit"]).strip() else ""
+            col.metric(item["label"], f'{item["value"]}{suffix}')
+            col.caption(f'{item["name"]} · {item["cycle"] or "최신"}')
+        st.caption(f'한국은행 ECOS · 조회 {ecos["fetched"]}')
+    except PublicDataError as exc:
+        st.info("한국은행 ECOS 조회 보류 · " + str(exc))
+
+    sources = configured_sources()
+    status = []
+    for name, ready in sources.items():
+        label = "설정됨" if ready else "키 없음"
+        if name == "KOSIS" and ready:
+            try:
+                ks = cached_kosis_status()
+                label = "연결됨" if ks["ok"] else "확인 필요"
+            except PublicDataError:
+                label = "확인 필요"
+        status.append(f"<span class='pd-badge'>{'●' if label in ('설정됨','연결됨') else '○'} {html.escape(name)} · {label}</span>")
+    st.html("<div class='pd-badges'>"+"".join(status)+"</div>")
+    st.caption("DART·공공데이터포털은 보유종목 새로고침 시 기업 재무·공시/시세를 조회합니다. ECOS는 위 카드에 실제 최신 응답을 표시합니다.")
 
 def allocation_panel(snapshot):
     positions=sorted(snapshot.get('positions',[]),key=lambda p:-p['weight'])
@@ -896,6 +933,8 @@ else:
     with action:
         refresh_account=st.button('계좌·지수 새로고침' if page=='오늘의 점검' else '내 계좌 새로고침',
             type='primary',disabled=not(password and configured),use_container_width=True)
+    if page=='오늘의 점검':
+        public_data_panel()
     if refresh_account:
         try:
             with st.spinner('증권사 잔고를 조회합니다…'):
