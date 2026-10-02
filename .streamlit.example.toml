@@ -1,5 +1,15 @@
 APP_PASSWORD = ""
+
+# PreDash accepts either naming style below in Streamlit Community Cloud Secrets.
 DART_CRTFC_KEY = ""
+# DART_API_KEY = ""
+
 DATA_GO_KR_SERVICE_KEY = ""
+# DATA_GO_KR_API_KEY = ""
+
 KRX_AUTH_KEY = ""
+# KRX_API_KEY = ""
+
 CUSTOMS_API_KEY = ""
+ECOS_API_KEY = ""
+KOSIS_API_KEY = ""
