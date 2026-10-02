@@ -88,9 +88,10 @@ def number(value):
 
 
 class Official:
-    def __init__(self):
-        self.dart_key = os.getenv("DART_CRTFC_KEY", "").strip()
-        self.price_key = unquote(os.getenv("DATA_GO_KR_SERVICE_KEY", "").strip())
+    def __init__(self, dart_key=None, price_key=None):
+        self.dart_key = (dart_key if dart_key is not None else os.getenv("DART_CRTFC_KEY", "")).strip()
+        raw_price_key = price_key if price_key is not None else os.getenv("DATA_GO_KR_SERVICE_KEY", "")
+        self.price_key = unquote(str(raw_price_key).strip())
         self.corps = None
         self.names = {}
         self.price_rows = {}

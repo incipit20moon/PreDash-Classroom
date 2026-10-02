@@ -50,12 +50,12 @@ def summarize(values):
                        'ma3_usd':sum(window)/3 if all(v is not None for v in window) else None})
     return result
 
-def exports(hs,country,end_month,today=None):
+def exports(hs,country,end_month,today=None,key=None):
     if not re.fullmatch(r'(?:\d{2}|\d{4}|\d{6}|\d{10})',hs):raise CustomsError('HS코드는 숫자 2·4·6·10자리입니다. 제품 분석에는 세부코드를 권장합니다.')
     if not re.fullmatch(r'[A-Z]{2}',country):raise CustomsError('국가는 US처럼 영문 대문자 2자리로 입력하세요.')
     end=month_index(end_month);today=today or date.today()
     if end>=today.year*12+today.month-1:raise CustomsError('진행 중인 이번 달 이전의 종료월을 선택하세요.')
-    key=os.getenv('CUSTOMS_API_KEY','').strip()
+    key=(key if key is not None else os.getenv('CUSTOMS_API_KEY','')).strip()
     if not key:raise CustomsError('CUSTOMS_API_KEY와 관세청 품목별 국가별 수출입실적 API 활용 승인을 확인하세요.')
     values={}
     for start,stop in ((end-23,end-12),(end-11,end)):

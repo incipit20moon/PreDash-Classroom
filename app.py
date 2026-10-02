@@ -114,6 +114,23 @@ try:
 except FileNotFoundError:
     pass
 
+PUBLIC_API_KEYS = ('DART_CRTFC_KEY','DATA_GO_KR_SERVICE_KEY','KRX_AUTH_KEY','CUSTOMS_API_KEY')
+
+def api_key(name):
+    """Prefer a key entered in this browser session, then fall back to Streamlit Secrets."""
+    session_keys=st.session_state.get('classroom_api_keys',{})
+    return str(session_keys.get(name) or os.getenv(name,'')).strip()
+
+def official_client():
+    return Official(dart_key=api_key('DART_CRTFC_KEY'),price_key=api_key('DATA_GO_KR_SERVICE_KEY'))
+
+def api_key_source(name):
+    if st.session_state.get('classroom_api_keys',{}).get(name):
+        return '현재 세션'
+    if os.getenv(name,'').strip():
+        return 'Streamlit Secrets'
+    return '미연결'
+
 def kis_client(mode=None):
     """Reuse the short-lived access token across Streamlit reruns in this session."""
     settings=account_settings(mode)
@@ -201,7 +218,7 @@ def watch_fetch(code,provider,today):
         if name:result['name']=name
         if result['lamp'] is None:result['errors']['price']='최근 20거래일 종가 부족 또는 기준일 경과'
     except (DataError,MarketDataError) as exc:result['errors']['price']=str(exc)
-    if os.getenv('DART_CRTFC_KEY','').strip():
+    if api_key('DART_CRTFC_KEY'):
         try:result['metrics']=provider.latest_period_metrics(code,today)
         except DataError as exc:result['errors']['metrics']=str(exc)
         try:
@@ -216,8 +233,8 @@ def watch_fetch(code,provider,today):
     if all(account_settings()[k] for k in ('key','secret','cano','product')):
         try:result['flow']=kis_client().investor_flow(code)
         except BrokerError as exc:result['errors']['flow']=str(exc)
-    if os.getenv('KRX_AUTH_KEY','').strip():
-        try:result['krx']=daily_activity(os.getenv('KRX_AUTH_KEY','').strip(),code,today)
+    if api_key('KRX_AUTH_KEY'):
+        try:result['krx']=daily_activity(api_key('KRX_AUTH_KEY'),code,today)
         except KRXError as exc:result['errors']['krx']=str(exc)
     if result.get('benchmark') and result.get('price_rows'):
         try:
@@ -489,12 +506,12 @@ elif page=='매매 연습':
             picked=st.selectbox('관심종목에서 선택',saved,key='paper_watch_pick')
         else:picked=''
         code=st.text_input('종목코드 6자리',value=picked,key=f'paper_code_{picked}',max_chars=6).strip()
-        configured=bool(os.getenv('DATA_GO_KR_SERVICE_KEY','').strip())
+        configured=bool(api_key('DATA_GO_KR_SERVICE_KEY'))
         if st.button('체결 기준 종가 조회',disabled=not configured):
             try:
                 if not re.fullmatch(r'[0-9]{6}',code):raise DataError('숫자 6자리 종목코드를 입력하세요.')
                 with st.spinner('공식 종가를 조회합니다…'):
-                    price,day,name=Official().price(code,today)
+                    price,day,name=official_client().price(code,today)
                 quote={'price':int(price),'date':datetime.strptime(day,'%Y%m%d').date().isoformat(),'name':name}
                 quotes[code]=quote;st.session_state.paper_quotes=quotes
                 st.rerun()
@@ -520,8 +537,8 @@ elif page=='매매 연습':
         elif code:st.caption('체결 기준 종가를 조회하세요. 기준일이 5일을 초과한 가격은 사용하지 않습니다.')
     with portfolio:
         st.subheader('모의 보유종목')
-        if ledger['positions'] and st.button('보유종목 평가 종가 새로고침',disabled=not bool(os.getenv('DATA_GO_KR_SERVICE_KEY','').strip())):
-            provider=Official();failures=[]
+        if ledger['positions'] and st.button('보유종목 평가 종가 새로고침',disabled=not bool(api_key('DATA_GO_KR_SERVICE_KEY'))):
+            provider=official_client();failures=[]
             with st.spinner('모의 보유종목 종가를 조회합니다…'):
                 for position in ledger['positions']:
                     try:
@@ -550,8 +567,8 @@ elif page=='관심종목':
     st.title('관심종목 점검')
     st.html('<div class="pd-intro">저장한 종목의 추세·실적·수급을 한 화면에서 점검하세요.</div>')
     st.caption('일별 종가: 공공데이터포털 · 동기 실적: OpenDART · 수급: KIS 연결 시 · 주문 기능 없음')
-    if not os.getenv('DATA_GO_KR_SERVICE_KEY','').strip():
-        st.info('연결 설정의 Streamlit Secrets에 DATA_GO_KR_SERVICE_KEY를 입력하면 관심종목 조회가 열립니다.')
+    if not api_key('DATA_GO_KR_SERVICE_KEY'):
+        st.info('연결 설정에서 공공데이터 API 키를 입력하면 관심종목 조회가 열립니다.')
         st.stop()
     # Only public ticker codes are put in the bookmark URL; no account or financial payload.
     raw=st.query_params.get('watch','')
@@ -576,7 +593,7 @@ elif page=='관심종목':
             if query.strip():
                 try:
                     with st.spinner('공식 종목 목록을 조회합니다…'):
-                        st.session_state.watch_candidates=Official().search(query.strip())[:20]
+                        st.session_state.watch_candidates=official_client().search(query.strip())[:20]
                 except DataError as exc:st.error(str(exc))
             else:st.warning('종목명 또는 숫자 6자리 종목코드를 입력하세요.')
         candidates=st.session_state.get('watch_candidates',[])
@@ -607,7 +624,7 @@ elif page=='관심종목':
     head.subheader(f'저장한 관심종목 {len(codes)}개')
     refresh=action.button('목록 전체 새로고침',type='primary',disabled=not codes,use_container_width=True)
     if refresh:
-        provider=Official()
+        provider=official_client()
         today=datetime.now(ZoneInfo('Asia/Seoul')).date()
         results={}
         progress=st.progress(0,text='공식 자료를 조회합니다.')
@@ -622,7 +639,7 @@ elif page=='관심종목':
     attempted=set(st.session_state.get('watch_name_attempts',[]))
     missing=[c for c in codes if c not in st.session_state.watch_names and (refresh or c not in attempted)]
     if missing:
-        resolver=Official()
+        resolver=official_client()
         with st.spinner('저장한 종목의 공식 종목명을 확인합니다…'):
             for c in missing:
                 attempted.add(c)
@@ -696,9 +713,9 @@ elif page=='투자 근거':
     cache_key='decision_'+code+'_'+market_name
     if refresh:
         if not re.fullmatch(r'[0-9]{6}',code):st.warning('숫자 6자리 종목코드를 입력하세요.')
-        elif not os.getenv('DATA_GO_KR_SERVICE_KEY','').strip():st.warning('공공데이터포털 시세 키를 연결 설정에서 확인하세요.')
+        elif not api_key('DATA_GO_KR_SERVICE_KEY'):st.warning('공공데이터포털 시세 키를 연결 설정에서 확인하세요.')
         else:
-            today=datetime.now(ZoneInfo('Asia/Seoul')).date();provider=Official()
+            today=datetime.now(ZoneInfo('Asia/Seoul')).date();provider=official_client()
             with st.spinner('공식 시세·실적·수급과 비교 시장을 조회합니다…'):
                 item=watch_fetch(code,provider,today);chart=[];chart_error=''
                 try:
@@ -767,7 +784,7 @@ elif page=='투자 근거':
         if export_refresh:
             try:
                 with st.spinner('관세청 월별 수출 실적을 조회합니다…'):
-                    st.session_state[export_key]=exports(hs_code.strip(),country,end_month.strip(),datetime.now(ZoneInfo('Asia/Seoul')).date())
+                    st.session_state[export_key]=exports(hs_code.strip(),country,end_month.strip(),datetime.now(ZoneInfo('Asia/Seoul')).date(),key=api_key('CUSTOMS_API_KEY'))
                 st.rerun()
             except CustomsError as exc:st.error(str(exc))
         export_data=st.session_state.get(export_key)
@@ -781,7 +798,7 @@ elif page=='투자 근거':
             st.caption(f"관세청 · HS {export_data['hs']} / {export_data['country']} · 기준월 {latest['month']} · USD · 조회 {export_data['fetched']}")
             st.caption('국가 전체의 해당 품목 수출입니다. 한 기업의 수출이나 매출이 아닙니다. 최근 24개월 조회 · 누락 월은 0으로 채우지 않습니다. 수출·매출의 시차와 인과는 별도 검증해야 합니다.')
             item['exports']=export_data
-        else:st.caption('Streamlit Secrets의 CUSTOMS_API_KEY와 이 관세청 API의 활용 승인이 필요합니다. 입력한 인증키는 이 화면에 표시하지 않습니다.')
+        else:st.caption('연결 설정의 관세청 API 키와 해당 API 활용 승인이 필요합니다. 입력한 인증키는 이 화면에 표시하지 않습니다.')
     with st.expander('산업 → 기업 연결 기록',expanded=False):
         st.caption('사용자 기록 · 자동 검증 아님. 확인된 원문과 미확인을 구분해 기록하세요.')
         note_key='industry_note_'+code
@@ -812,17 +829,80 @@ elif page=='투자 근거':
     st.caption('매크로·산업생산 자동 수집, 업종 비교, 가치 평가와 종합 투자점수는 아직 연결하지 않았습니다. 리포트는 현재 조회 결과와 사용자 기록의 백업입니다.')
     st.stop()
 elif page=='연결 설정':
-    st.title('연결 설정')
+    st.title('API 연결 설정')
+    st.html('<div class="pd-intro">필요한 데이터만 연결하세요. 입력한 API 키는 화면에 다시 표시하지 않으며, 세션 입력값은 로그아웃하면 사라집니다.</div>')
+
     if not password:
-        st.info('앱 Settings → Secrets에 APP_PASSWORD를 설정한 뒤 개인 계좌를 연결하세요.')
+        st.warning('먼저 Streamlit 앱 Settings → Secrets에 APP_PASSWORD를 설정하세요. 앱 로그인용 비밀번호만 Secrets에 필수로 둡니다.')
+        st.code('APP_PASSWORD = "나만의 긴 비밀번호"',language='toml')
         st.stop()
+
+    api_specs=[
+        ('DART','기업 실적 · 공시','DART_CRTFC_KEY','https://opendart.fss.or.kr/','재무·공시 분석'),
+        ('공공데이터','종목 · 일별 시세','DATA_GO_KR_SERVICE_KEY','https://www.data.go.kr/','관심종목·모의투자 시세'),
+        ('KRX','거래량 · 거래대금 · 시가총액','KRX_AUTH_KEY','https://openapi.krx.co.kr/','시장 거래정보'),
+        ('관세청','품목별 국가별 수출입','CUSTOMS_API_KEY','https://www.data.go.kr/data/15100475/openapi.do','수출 흐름 분석'),
+    ]
+
+    connected=sum(bool(api_key(key)) for _,_,key,_,_ in api_specs)
+    kis_connected=all(account_settings()[k] for k in ('key','secret','cano','product'))
+    st.html(f"<div class='pd-summary'><div><span>공공 API</span><strong>{connected}/4</strong><small>필요한 항목만 연결</small></div><div><span>증권사 KIS</span><strong>{'연결됨' if kis_connected else '미연결'}</strong><small>현재 세션 전용</small></div><div><span>저장 방식</span><strong>세션 보호</strong><small>로그아웃 시 입력 키 삭제</small></div></div>")
+
+    st.subheader('01 · 공공 데이터 API')
+    st.caption('수강 중에는 아래에서 바로 입력할 수 있습니다. 장기 사용은 본인 Streamlit Secrets에 저장하면 매번 다시 입력할 필요가 없습니다.')
+
+    current=st.session_state.get('classroom_api_keys',{}).copy()
+    with st.form('public_api_settings',clear_on_submit=False):
+        entered={}
+        for label,desc,key,url,feature in api_specs:
+            status='● 연결됨' if api_key(key) else '○ 입력 필요'
+            source=api_key_source(key)
+            st.markdown(f"**{label}** · {desc}  \n{status} · {source} · 사용 기능: {feature}")
+            entered[key]=st.text_input(f'{label} API Key',type='password',placeholder='새 키를 입력할 때만 작성',key='api_input_'+key,
+                                       help='비워두면 기존 Streamlit Secrets 또는 현재 세션 키를 유지합니다.')
+        save_api=st.form_submit_button('입력한 API 키 적용',type='primary',use_container_width=True)
+
+    if save_api:
+        changed=0
+        for key,value in entered.items():
+            value=value.strip()
+            if value:
+                current[key]=value
+                changed+=1
+        st.session_state.classroom_api_keys=current
+        for key in entered:
+            st.session_state.pop('api_input_'+key,None)
+        if changed:
+            st.success(f'{changed}개 API 키를 현재 세션에 적용했습니다.')
+        else:
+            st.info('새로 입력한 키가 없습니다. 기존 연결 상태를 유지합니다.')
+        st.rerun()
+
+    links=st.columns(4)
+    for col,(label,desc,key,url,feature) in zip(links,api_specs):
+        col.link_button(f'{label} 발급/신청',url,use_container_width=True)
+
+    if st.session_state.get('classroom_api_keys'):
+        if st.button('세션 API 키 모두 지우기',use_container_width=True):
+            st.session_state.pop('classroom_api_keys',None)
+            for _,_,key,_,_ in api_specs:st.session_state.pop('api_input_'+key,None)
+            st.rerun()
+
+    with st.expander('Streamlit Secrets에 영구 설정하기'):
+        st.caption('본인 Fork 앱에서만 사용하세요. GitHub 코드나 게시판에는 API 키를 올리지 않습니다.')
+        st.code('''DART_CRTFC_KEY = "내 DART 키"
+DATA_GO_KR_SERVICE_KEY = "내 공공데이터 키"
+KRX_AUTH_KEY = "내 KRX 키"
+CUSTOMS_API_KEY = "내 관세청 키"''',language='toml')
+        st.write('Streamlit Community Cloud → 해당 앱 → Settings → Secrets에 붙여 넣고 Save 합니다.')
+
+    st.divider()
+    st.subheader('02 · 한국투자증권 계좌')
+    st.caption('증권사 App Key·Secret·계좌번호는 Streamlit Secrets에 저장하지 않고 현재 접속 세션에서만 사용합니다.')
     connection_form()
-    checks=[('대시보드 비밀번호','APP_PASSWORD'),('DART 인증키','DART_CRTFC_KEY'),('공공데이터포털 시세 키','DATA_GO_KR_SERVICE_KEY'),('KRX 일별 거래정보 키','KRX_AUTH_KEY'),('관세청 수출입 키','CUSTOMS_API_KEY')]
-    for name,key in checks: st.write(('● 설정됨  ' if os.getenv(key,'').strip() else '○ 입력 필요  ')+name)
-    st.info('KIS 잔고는 증권사, 결산·공시는 OpenDART, 일별 시세는 공공데이터포털에서 조회합니다. 각 데이터의 기준일이 다릅니다.')
-    if password and all(account_settings()[k] for k in ('key','secret','cano','product')):
-        st.caption(f"현재 KIS 설정: {'실전' if account_settings()['mode']=='real' else '모의 또는 기본값 demo'} · 키와 계좌번호 원문은 표시하지 않습니다.")
-        if st.button('KIS 연결 진단 (조회 전용)'):
+    if kis_connected:
+        st.caption(f"현재 KIS 설정 · {'실전 조회' if account_settings()['mode']=='real' else '모의투자'} · 키와 계좌번호 원문은 표시하지 않습니다.")
+        if st.button('KIS 연결 진단 · 잔고 조회 권한 확인',type='primary',use_container_width=True):
             try:
                 client=kis_client()
                 client.authorize()
@@ -831,9 +911,10 @@ elif page=='연결 설정':
                 st.success(f"2단계 · 국내주식 잔고 조회 성공 · 보유종목 {len(snapshot['positions'])}개")
             except BrokerError as exc:
                 st.error(str(exc))
-                st.caption('키·계좌번호 원문은 화면에 표시하지 않습니다. KIS_ENV=real은 실전용 키, demo는 모의용 키와 일치해야 합니다.')
-    st.link_button('한국투자증권 API 신청','https://apiportal.koreainvestment.com/')
-    st.caption('키의 원문·계좌번호는 화면과 로그에 표시하지 않습니다. 실제 배포에는 긴 비밀번호와 비공개 접근 설정을 사용하세요.')
+    st.link_button('한국투자증권 API 신청','https://apiportal.koreainvestment.com/',use_container_width=True)
+
+    st.info('권장 순서 · 공공데이터 → DART → KIS → 필요할 때 KRX·관세청. 모든 API를 한 번에 준비할 필요는 없습니다.')
+    st.caption('세션 입력 API 키와 KIS 정보는 로그아웃 시 함께 삭제됩니다. 장기 사용이 필요한 공공 API만 본인의 Streamlit Secrets에 저장하세요.')
 elif page=='매매 습관':
     st.title('매매 습관')
     mode_label=st.radio('분석할 계좌',['실전 계좌','KIS 모의계좌'],horizontal=True,
@@ -955,8 +1036,8 @@ else:
                             '매수 전 20거래일의 검증 가능한 시세가 부족해 비교를 보류합니다.')
                 except (BrokerError,TradeDataError,KeyError,ValueError):
                     st.session_state.home_price_reason='체결 또는 과거 시세 자료가 부족해 가격 위치를 보류합니다.'
-            if os.getenv('DART_CRTFC_KEY','').strip() and os.getenv('DATA_GO_KR_SERVICE_KEY','').strip():
-                provider=Official()
+            if api_key('DART_CRTFC_KEY') and api_key('DATA_GO_KR_SERVICE_KEY'):
+                provider=official_client()
                 progress=st.progress(0,text='보유종목의 공식 자료를 조회합니다.')
                 for index,position in enumerate(snapshot['positions']):
                     try:
@@ -1075,7 +1156,7 @@ else:
             with st.expander(f"{p['name']} · 재무·공시 근거"):
                 st.caption(f"한국투자증권 잔고 {snap['fetched']} · 평가액 대비 비중 · 주문 기능 없음")
                 if st.button('종목·시장 1·5·20일 성과 조회',key='holding_relative_'+p['code']):
-                    st.session_state['holding_evidence_'+p['code']]=watch_fetch(p['code'],Official(),today)
+                    st.session_state['holding_evidence_'+p['code']]=watch_fetch(p['code'],official_client(),today)
                 held=st.session_state.get('holding_evidence_'+p['code'])
                 if held:stock_evidence_charts(held)
 
